@@ -1,0 +1,14 @@
+// Emission of the package: JavaScript and declarations of `src/` into `dist/`. The Node types serve
+// the adapter `src/node.ts` alone; the declarations of the main entry reference none.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "sourceMap": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,386 @@
+# Conformance cases of the discovery, run by the Python and the TypeScript implementations.
+#
+# Each case builds `tree` below an empty temporary folder, the top, then runs one request and
+# compares the outcome with `expect`. Every path of `tree`, `cwd` and `expect` is relative to the
+# top; `root`, `config` and the values of `environ` are relative to `cwd`, as a command line gives
+# them. A value of `tree` is the content of the file. `expect.table` is the table of the tool read
+# from `pyproject.toml`, and null for any other place. A case whose request sets `pyproject` runs in
+# Python only, since the TypeScript implementation serves tools written in TypeScript.
+#
+# The tool name `probe` keeps the search above the top from meeting a real configuration file.
+
+_schema: hodegos:cases@1
+
+defaults:
+  request:
+    tool: probe
+    extensions: [yml]
+    pyproject: false
+    stacked: false
+    cwd: project
+    root: null
+    config: null
+    environ: {}
+
+cases:
+  # --- Places at the root -------------------------------------------------------------------------
+
+  - name: root-file
+    description: the file named after the tool, at the root, is found from a subfolder
+    tree:
+      project/probe.yml: "key: value\n"
+      project/notes/a.md: ""
+    request: {cwd: project/notes}
+    expect: {root: project, configuration: project/probe.yml, table: null}
+
+  - name: dot-config
+    description: the file in the folder .config of the root is found
+    tree:
+      project/.config/probe.yml: ""
+    expect: {root: project, configuration: project/.config/probe.yml, table: null}
+
+  - name: declared-folder
+    description: a folder listed by hodegos.yml is searched
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders:\n  - config/tools\n"
+      project/config/tools/probe.yml: ""
+      project/docs/a.md: ""
+    request: {cwd: project/docs}
+    expect: {root: project, configuration: project/config/tools/probe.yml, table: null}
+
+  - name: declaration-in-dot-config
+    description: hodegos.yml may lie in the folder .config of the root
+    tree:
+      project/.config/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [settings]\n"
+      project/settings/probe.yml: ""
+    expect: {root: project, configuration: project/settings/probe.yml, table: null}
+
+  - name: undeclared-folder
+    description: a folder that no declaration lists is not searched, whatever its name
+    tree:
+      project/config/tools/probe.yml: ""
+    expect: {root: project, configuration: null, table: null}
+
+  - name: declaration-scope
+    description: a declaration lists folders of its own folder only, not of the folders below it
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [config/tools]\n"
+      project/sub/config/tools/probe.yml: ""
+    request: {cwd: project/sub}
+    expect: {root: project/sub, configuration: null, table: null}
+
+  - name: second-extension
+    description: each extension that the tool admits is searched
+    tree:
+      project/probe.toml: ""
+    request: {extensions: [yml, toml]}
+    expect: {root: project, configuration: project/probe.toml, table: null}
+
+  - name: other-extension-ignored
+    description: an extension that the tool does not admit is not searched
+    tree:
+      project/probe.toml: ""
+    expect: {root: project, configuration: null, table: null}
+
+  - name: folder-named-like-the-file
+    description: a folder bearing the name of the file is not a configuration
+    tree:
+      project/probe.yml/a.txt: ""
+    expect: {root: project, configuration: null, table: null}
+
+  # --- The table of pyproject.toml ----------------------------------------------------------------
+
+  - name: pyproject-table
+    description: the table tool.probe of pyproject.toml is found, with its content
+    tree:
+      project/pyproject.toml: "[project]\nname = \"x\"\n\n[tool.probe]\nkey = \"value\"\n"
+      project/src/a.py: ""
+    request: {pyproject: true, cwd: project/src}
+    expect: {root: project, configuration: project/pyproject.toml, table: {key: value}}
+
+  - name: pyproject-without-table
+    description: a pyproject.toml without the table of the tool is not a configuration
+    tree:
+      project/pyproject.toml: "[tool.other]\nkey = 1\n"
+    request: {pyproject: true}
+    expect: {root: project, configuration: null, table: null}
+
+  - name: pyproject-not-read
+    description: a tool that does not read pyproject.toml ignores its table
+    tree:
+      project/pyproject.toml: "[tool.probe]\nkey = 1\n"
+    expect: {root: project, configuration: null, table: null}
+
+  - name: pyproject-invalid
+    description: a pyproject.toml that does not parse is reported
+    tree:
+      project/pyproject.toml: "[tool.probe\n"
+    request: {pyproject: true}
+    expect: {error: invalid-pyproject}
+
+  # --- Competing places ---------------------------------------------------------------------------
+
+  - name: competing-root-and-dot-config
+    description: two places holding a file is an error, whatever the places
+    tree:
+      project/probe.yml: ""
+      project/.config/probe.yml: ""
+    expect: {error: competing-places}
+
+  - name: competing-root-and-declared
+    description: a declared folder competes with the other places
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [config/tools]\n"
+      project/probe.yml: ""
+      project/config/tools/probe.yml: ""
+    expect: {error: competing-places}
+
+  - name: competing-extensions
+    description: two extensions of one place compete
+    tree:
+      project/probe.yml: ""
+      project/probe.toml: ""
+    request: {extensions: [yml, toml]}
+    expect: {error: competing-places}
+
+  - name: competing-file-and-pyproject
+    description: the table of pyproject.toml competes with a file
+    tree:
+      project/probe.yml: ""
+      project/pyproject.toml: "[tool.probe]\nkey = 1\n"
+    request: {pyproject: true}
+    expect: {error: competing-places}
+
+  - name: competing-declarations
+    description: two declarations of one folder compete
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: []\n"
+      project/.config/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: []\n"
+    expect: {error: competing-declarations}
+
+  # --- Invalid declarations -----------------------------------------------------------------------
+
+  - name: declaration-without-format
+    description: a declaration without its format identifier is invalid
+    tree:
+      project/hodegos.yml: "folders: [config/tools]\n"
+    expect: {error: invalid-declaration}
+
+  - name: declaration-other-format
+    description: a format identifier that the implementation does not read is invalid
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@2\nfolders: [config/tools]\n"
+    expect: {error: invalid-declaration}
+
+  - name: declaration-unknown-key
+    description: a key outside the format is invalid, so that a misspelled key fails
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolder: [config/tools]\n"
+    expect: {error: invalid-declaration}
+
+  - name: declaration-not-a-mapping
+    description: a declaration that is not a mapping is invalid
+    tree:
+      project/hodegos.yml: "- config/tools\n"
+    expect: {error: invalid-declaration}
+
+  - name: declaration-unparsable
+    description: a declaration that does not parse is invalid
+    tree:
+      project/hodegos.yml: "folders: [config/tools\n"
+    expect: {error: invalid-declaration}
+
+  - name: declared-folder-absolute
+    description: a declared folder must be relative to the folder of the declaration
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [/etc]\n"
+    expect: {error: invalid-declaration}
+
+  - name: declared-folder-escapes
+    description: a declared folder must stay below the folder of the declaration
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [config/../../other]\n"
+    expect: {error: invalid-declaration}
+
+  - name: declared-folder-empty
+    description: a declared folder must be a non-empty path
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [\"\"]\n"
+    expect: {error: invalid-declaration}
+
+  - name: declared-folders-not-strings
+    description: the declared folders must be strings
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [1]\n"
+    expect: {error: invalid-declaration}
+
+  - name: declared-folder-boolean
+    description: a declaration is read as YAML 1.1, where the value yes is a boolean, not a folder
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [yes]\n"
+    expect: {error: invalid-declaration}
+
+  - name: declared-folder-trailing-slash
+    description: a declared folder may end with a slash
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [config/tools/]\n"
+      project/config/tools/probe.yml: ""
+    expect: {root: project, configuration: project/config/tools/probe.yml, table: null}
+
+  # --- The root -----------------------------------------------------------------------------------
+
+  - name: no-configuration
+    description: without any configuration, the root is the current folder
+    tree:
+      project/notes/a.md: ""
+    request: {cwd: project/notes}
+    expect: {root: project/notes, configuration: null, table: null}
+
+  - name: nearest-ancestor
+    description: the nearest folder holding a configuration is the root
+    tree:
+      project/probe.yml: ""
+      project/sub/probe.yml: ""
+      project/sub/deep/a.md: ""
+    request: {cwd: project/sub/deep}
+    expect: {root: project/sub, configuration: project/sub/probe.yml, table: null}
+
+  - name: stacked-outermost
+    description: a tool that stacks one file per folder takes the outermost folder
+    tree:
+      project/probe.yml: ""
+      project/sub/probe.yml: ""
+      project/sub/deep/a.md: ""
+    request: {cwd: project/sub/deep, stacked: true}
+    expect: {root: project, configuration: project/probe.yml, table: null}
+
+  - name: ancestor-found-through-declaration
+    description: the search of the root also finds a file in a declared folder
+    tree:
+      project/hodegos.yml: "_schema: hodegos:configuration@1\nfolders: [config/tools]\n"
+      project/config/tools/probe.yml: ""
+      project/a/b/c.md: ""
+    request: {cwd: project/a/b}
+    expect: {root: project, configuration: project/config/tools/probe.yml, table: null}
+
+  - name: ancestor-declaration-invalid
+    description: an invalid declaration met by the search of the root is reported
+    tree:
+      project/hodegos.yml: "folders: [config/tools]\n"
+      project/a/b.md: ""
+    request: {cwd: project/a}
+    expect: {error: invalid-declaration}
+
+  - name: search-stops-at-nearest
+    description: the search of the root reads no folder above the nearest root
+    tree:
+      hodegos.yml: "folders: [config/tools]\n"
+      project/probe.yml: ""
+      project/a/b.md: ""
+    request: {cwd: project/a}
+    expect: {root: project, configuration: project/probe.yml, table: null}
+
+  - name: stacked-search-reads-every-folder
+    description: the search of a stacked tool reads every folder up to the top
+    tree:
+      hodegos.yml: "folders: [config/tools]\n"
+      project/probe.yml: ""
+      project/a/b.md: ""
+    request: {cwd: project/a, stacked: true}
+    expect: {error: invalid-declaration}
+
+  - name: root-option
+    description: the root option wins over the search
+    tree:
+      project/probe.yml: ""
+      other/probe.yml: ""
+    request: {root: ../other}
+    expect: {root: other, configuration: other/probe.yml, table: null}
+
+  - name: root-option-without-configuration
+    description: a root given by option may hold no configuration
+    tree:
+      project/probe.yml: ""
+      other/a.md: ""
+    request: {root: ../other}
+    expect: {root: other, configuration: null, table: null}
+
+  - name: root-variable
+    description: the variable <TOOL>_ROOT names the root when no option does
+    tree:
+      project/probe.yml: ""
+      other/probe.yml: ""
+    request: {environ: {PROBE_ROOT: ../other}}
+    expect: {root: other, configuration: other/probe.yml, table: null}
+
+  - name: root-option-over-variable
+    description: the root option wins over the variable
+    tree:
+      project/probe.yml: ""
+      other/probe.yml: ""
+      third/probe.yml: ""
+    request: {root: ../third, environ: {PROBE_ROOT: ../other}}
+    expect: {root: third, configuration: third/probe.yml, table: null}
+
+  - name: root-variable-empty
+    description: an empty variable counts as unset
+    tree:
+      project/probe.yml: ""
+    request: {environ: {PROBE_ROOT: ""}}
+    expect: {root: project, configuration: project/probe.yml, table: null}
+
+  - name: root-variable-hyphen
+    description: a hyphen of the tool name becomes an underscore in the variable
+    tree:
+      project/a.md: ""
+      other/probe-tool.yml: ""
+    request: {tool: probe-tool, environ: {PROBE_TOOL_ROOT: ../other}}
+    expect: {root: other, configuration: other/probe-tool.yml, table: null}
+
+  # --- The configuration option -------------------------------------------------------------------
+
+  - name: config-option
+    description: the configuration option names the file, and the root is resolved as usual
+    tree:
+      project/probe.yml: ""
+      elsewhere/custom.yml: ""
+    request: {config: ../elsewhere/custom.yml}
+    expect: {root: project, configuration: elsewhere/custom.yml, table: null}
+
+  - name: config-option-skips-competition
+    description: the configuration option is read even where two places compete
+    tree:
+      project/probe.yml: ""
+      project/.config/probe.yml: ""
+    request: {config: probe.yml}
+    expect: {root: project, configuration: project/probe.yml, table: null}
+
+  - name: config-option-missing
+    description: a configuration option that names no file is an error
+    tree:
+      project/a.md: ""
+    request: {config: absent.yml}
+    expect: {error: missing-config}
+
+  # --- Invalid requests ---------------------------------------------------------------------------
+
+  - name: tool-name-invalid
+    description: a tool name holds lowercase letters, digits and inner hyphens only
+    tree:
+      project/a.md: ""
+    request: {tool: Probe}
+    expect: {error: invalid-request}
+
+  - name: extensions-empty
+    description: a tool admits at least one extension
+    tree:
+      project/a.md: ""
+    request: {extensions: []}
+    expect: {error: invalid-request}
+
+  - name: extension-invalid
+    description: an extension is given without its dot
+    tree:
+      project/a.md: ""
+    request: {extensions: [.yml]}
+    expect: {error: invalid-request}
