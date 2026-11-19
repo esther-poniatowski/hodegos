@@ -1,0 +1,21 @@
+name: hodegos
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  # Development tools
+  - black                  # code formatting
+  - mypy                   # static type checking
+  - mypy_extensions
+  - types-pyyaml           # type stubs of PyYAML, for mypy
+  - pylint                 # code linting
+  - pyright                # static type analysis
+  # Testing
+  - pytest
+  - pytest-mock
+  - pytest-cov
+  - pytest-pylint          # Pylint plugin for Pytest
+  # Runtime
+  - pyyaml                 # the file hodegos.yml of a project
+variables:

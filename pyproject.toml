@@ -1,0 +1,62 @@
+# ==================================================================================================
+# Pyproject Configuration for the hodegos Package
+#
+# Hodegos finds the root of a project and the configuration file of a tool, in the places that a
+# tool convention admits and in the folders that the project declares. Each tool parses its own
+# file.
+# ==================================================================================================
+
+# --- Build System Requirements --------------------------------------------------------------------
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+
+# --- Package Metadata -----------------------------------------------------------------------------
+
+[project]
+name = "hodegos"
+version = "0.0.0"
+authors = [{name = "Esther Poniatowski", email = "esther.poniatowski@ens.psl.eu"}]
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+readme = {file = "README.md", content-type = "text/markdown"}
+description = "Finds the root of a project and the configuration file of a tool."
+keywords = ["configuration", "discovery", "root", "pyproject", "tools"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Development Status :: 2 - Pre-Alpha"
+]
+urls = {homepage = "https://github.com/esther-poniatowski/hodegos"}
+
+
+# --- Dependencies ---------------------------------------------------------------------------------
+
+requires-python = ">=3.12"
+
+dependencies = [
+    "pyyaml",
+]
+
+
+# --- Package Source Code --------------------------------------------------------------------------
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# The marker of a typed package, read by the type checkers of the consumers.
+[tool.setuptools.package-data]
+hodegos = ["py.typed"]
+
+# --- Tool Configurations --------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
