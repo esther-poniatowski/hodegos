@@ -3,20 +3,13 @@
 
 /** Kinds of failure of a discovery. */
 export type ErrorCode =
-  | "invalid-request"
-  | "missing-config"
-  | "competing-places"
-  | "competing-declarations"
-  | "invalid-declaration"
-  | "invalid-pyproject";
+  "invalid-request" | "missing-config" | "competing-places" | "invalid-pyproject";
 
 /** Every kind of failure, in the order of their declaration. */
 export const ERROR_CODES: readonly ErrorCode[] = [
   "invalid-request",
   "missing-config",
   "competing-places",
-  "competing-declarations",
-  "invalid-declaration",
   "invalid-pyproject",
 ];
 

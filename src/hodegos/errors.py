@@ -23,10 +23,6 @@ class ErrorCode(str, Enum):
     """The configuration option names no file."""
     COMPETING_PLACES = "competing-places"
     """Two places of the root hold a configuration of the tool."""
-    COMPETING_DECLARATIONS = "competing-declarations"
-    """A folder holds both `hodegos.yml` and `.config/hodegos.yml`."""
-    INVALID_DECLARATION = "invalid-declaration"
-    """A file `hodegos.yml` does not parse or departs from its format."""
     INVALID_PYPROJECT = "invalid-pyproject"
     """A file `pyproject.toml` read for the table of the tool does not parse."""
 

@@ -28,27 +28,12 @@ Each folder holds the following places of the configuration of a tool, searched 
 
 1. the file `<name>.<extension>` in the folder;
 2. the same file in the subfolder `.config/`;
-3. the same file in each folder listed by the declaration of the folder;
+3. the same file in the subfolder `config/`;
 4. the table `[tool.<name>]` of `pyproject.toml`, for a Python tool that reads it.
 
-Two places holding a configuration are an error, so the order fixes only the order of the places named by that error. A file place holds a configuration when its path names a regular file, and a folder bearing the name of the file holds none. The table of `pyproject.toml` holds a configuration when `pyproject.toml` holds the table. A `pyproject.toml` that does not parse is an `invalid-pyproject`.
+Two places holding a configuration are an error, so the order fixes only the order of the places named by that error. A file place holds a configuration when its path names a regular file, and a folder bearing the name of the file holds none. Therefore, a subfolder `config/` holding only the files of other tools holds no configuration of the tool. The table of `pyproject.toml` holds a configuration when `pyproject.toml` holds the table. A `pyproject.toml` that does not parse is an `invalid-pyproject`.
 
-## The declaration of a project
-
-A project lists the folders searched besides the accepted places in one declaration, `hodegos.yml`, at its root or in its subfolder `.config/`. The [schema of the declaration](../specs/schemas/configuration.schema.json) states its format. For example, a project keeping the configuration files in `config/tools/` declares: ^declaration
-
-```yaml
-_schema: hodegos:configuration@1
-folders:
-  - config/tools
-```
-
-- **Format.** The key `_schema` must hold `hodegos:configuration@1`. Any other key than `_schema` and `folders` is an error, so that a misspelled key fails.
-- **Folders.** Each folder is a string naming a path below the folder of the declaration, with segments separated by `/`, without a segment `.` or `..`, and with at most a trailing `/`.
-- **Scope.** A declaration lists folders of its own folder only. A folder below it is searched through its own declaration.
-- **Parsing.** The declaration is parsed as YAML 1.1, as PyYAML parses it. Therefore, the value `yes` is a boolean in both implementations, and is rejected as a folder.
-
-A declaration departing from these rules, or failing to parse, is an `invalid-declaration`. Two declarations of one folder are `competing-declarations`.
+A configuration kept in another folder, such as `config/tools/`, is named by the configuration option of the tool. Hodegos reads no file that lists further places. ^other-folders
 
 ## The root
 
@@ -56,10 +41,12 @@ The root of a command is the first answer of: ^root
 
 1. the root option, resolved against the current folder;
 2. the variable `<NAME>_ROOT`, resolved against the current folder, when it is set and not empty;
-3. the nearest folder holding a configuration of the tool in one of its places, from the current folder upward; for a stacked tool, the outermost such folder;
+3. the nearest folder holding a configuration of the tool in one of its places, searched upward from the start; for a stacked tool, the outermost such folder;
 4. the current folder.
 
-The search of step 3 stops at the nearest folder holding a configuration, and runs to the top of the file system for a stacked tool only. The search reads the declaration of each folder that it meets, and its `pyproject.toml` for a Python tool that reads it. Therefore, an invalid declaration or `pyproject.toml` met by the search stops the search with its error.
+The start of the search is the current folder by default. A tool may give another start, such as the folder of a source file, and a relative start is resolved against the current folder. The start changes step 3 only. Steps 1, 2 and 4, and the configuration option, keep the current folder. ^start
+
+The search of step 3 stops at the nearest folder holding a configuration, and runs to the top of the file system for a stacked tool only. For a Python tool that reads `pyproject.toml`, the search reads the `pyproject.toml` of each folder searched. Therefore, an invalid `pyproject.toml` met by the search stops the search with its error.
 
 ## The configuration
 
@@ -70,10 +57,19 @@ The configuration of a command is: ^configuration
 
 When no place holds a configuration, the outcome names none. Then, the tool decides whether to run on its defaults or to stop. For the table of `pyproject.toml`, the outcome carries the content of the table. For any other place, the tool parses the file itself.
 
+## The files
+
+Each implementation reads files through a port that answers two questions: whether a path names a regular file, and which text a file holds, decoded as UTF-8. A path that cannot be reached names no regular file. A discovery reaches every path through the port. The discovery asks whether each place and the file of the configuration option name a regular file, and reads the text of `pyproject.toml` only. Therefore, a tool can read a configuration inside a state served from memory or from Git, without copying the state to disk. ^files
+
+- **Python.** `discover` takes the port as its optional argument `files`, and reads the local file system by default.
+- **TypeScript.** `discover` takes the port as its third argument. The entry `@hodegos/discovery/node` supplies the adapter of Node, and a plugin of Obsidian supplies an adapter of its vault.
+
+Only `pyproject.toml` needs the text of a file, so the TypeScript implementation never asks its port for a text. The TypeScript port keeps that question anyway, so that both ports have one shape. Each implementation runs the conformance cases twice: on the local file system, and on a tree served from memory through the port.
+
 ## Paths
 
 Every path of an outcome is absolute and normalized lexically. The normalization drops the empty and `.` segments, and each `..` segment removes the segment before it. Both implementations leave symbolic links unresolved, so that they name the same folders. ^paths
 
 ## Versions
 
-The format of the declaration and the codes of the errors form the contract of Hodegos. A new version of the format is required by any change that makes a valid declaration invalid or that changes the expected outcome of a case. A format that no release has published may change in place. ^versions
+The contract of Hodegos consists of the places, the rules of the root and of the configuration, the codes of the errors, and the public interface of each package. The conformance cases state the rules of that contract. A breaking change alters the expected outcome of a case, or removes or changes incompatibly a member of a public interface. No release of Hodegos exists yet. Therefore, the contract changes in place, and the changelog records each breaking change. ^versions

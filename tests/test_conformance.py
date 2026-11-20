@@ -1,4 +1,10 @@
-"""Run the conformance cases of `specs/cases/discovery.yml` against the Python implementation."""
+"""
+Run the conformance cases of `specs/cases/discovery.yml` against the Python implementation.
+
+Each case runs twice. The first run reads a temporary folder through the default local file
+system. The second run serves the tree from memory through the port `FileSystem`, below a top absent
+from the disk.
+"""
 
 from __future__ import annotations
 
@@ -8,12 +14,32 @@ from typing import Any
 import pytest
 import yaml
 
-from hodegos import DiscoveryError, Tool, discover
+from hodegos import Discovery, DiscoveryError, ErrorCode, FileSystem, Tool, discover
 
 CASES_FILE = Path(__file__).resolve().parents[1] / "specs" / "cases" / "discovery.yml"
 DOCUMENT: dict[str, Any] = yaml.safe_load(CASES_FILE.read_text(encoding="utf-8"))
 DEFAULT_REQUEST: dict[str, Any] = DOCUMENT["defaults"]["request"]
 CASES: list[dict[str, Any]] = DOCUMENT["cases"]
+
+MEMORY_TOP = Path("/hodegos-memory-top")
+"""Top of the trees served from memory, a folder absent from the disk."""
+
+
+class MemoryFileSystem:
+    """Adapter of the port `FileSystem` serving the files of a tree held in memory."""
+
+    def __init__(self, files: dict[Path, str]) -> None:
+        self.files = files
+
+    def is_file(self, path: Path) -> bool:
+        """Return whether the tree holds a file at `path`."""
+        return path in self.files
+
+    def read_text(self, path: Path) -> str:
+        """Return the content of the file at `path`, or raise as a missing file does."""
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        return self.files[path]
 
 
 def _build(top: Path, tree: dict[str, str]) -> None:
@@ -29,17 +55,31 @@ def _relative(top: Path, path: Path) -> str:
     return path.relative_to(top).as_posix()
 
 
+def _optional_path(value: str | None) -> Path | None:
+    """Return the path of an optional value of the request."""
+    return None if value is None else Path(value)
+
+
+@pytest.mark.parametrize("reader", ["local", "memory"])
 @pytest.mark.parametrize("case", CASES, ids=[case["name"] for case in CASES])
-def test_case(case: dict[str, Any], tmp_path: Path) -> None:
-    """The outcome of the request equals the expected outcome of the case."""
-    top = tmp_path.resolve()
-    _build(top, case["tree"])
+def test_case(case: dict[str, Any], reader: str, tmp_path: Path) -> None:
+    """The outcome of the request equals the expected outcome of the case, for each reader."""
     request = {**DEFAULT_REQUEST, **case.get("request", {})}
     expect = case["expect"]
-    cwd = top / request["cwd"]
-    cwd.mkdir(parents=True, exist_ok=True)
+    files: FileSystem | None
+    if reader == "local":
+        top = tmp_path.resolve()
+        _build(top, case["tree"])
+        (top / request["cwd"]).mkdir(parents=True, exist_ok=True)
+        files = None
+    else:
+        top = MEMORY_TOP
+        assert not top.exists()
+        files = MemoryFileSystem(
+            {top / relative: content for relative, content in case["tree"].items()}
+        )
 
-    def run() -> Any:
+    def run() -> Discovery:
         tool = Tool(
             request["tool"],
             tuple(request["extensions"]),
@@ -48,10 +88,12 @@ def test_case(case: dict[str, Any], tmp_path: Path) -> None:
         )
         return discover(
             tool,
-            root=None if request["root"] is None else Path(request["root"]),
-            config=None if request["config"] is None else Path(request["config"]),
-            cwd=cwd,
+            root=_optional_path(request["root"]),
+            config=_optional_path(request["config"]),
+            start=_optional_path(request["start"]),
+            cwd=top / request["cwd"],
             environ=request["environ"],
+            files=files,
         )
 
     if "error" in expect:
@@ -70,7 +112,5 @@ def test_case(case: dict[str, Any], tmp_path: Path) -> None:
 
 def test_every_error_code_has_a_case() -> None:
     """Each kind of failure is exercised by at least one case, so that no code goes untested."""
-    from hodegos import ErrorCode  # pylint: disable=import-outside-toplevel
-
     expected = {case["expect"]["error"] for case in CASES if "error" in case["expect"]}
     assert expected == {code.value for code in ErrorCode}

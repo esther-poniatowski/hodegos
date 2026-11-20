@@ -2,19 +2,25 @@
 // Hodegos states it and as the Python implementation performs it, without the table of
 // `pyproject.toml`.
 
-import { readDeclaredFolders } from "./declaration.js";
 import { DiscoveryError } from "./errors.js";
 import type { FileSystem } from "./file-system.js";
 import { join, normalize, resolvePath, selfAndParents } from "./paths.js";
 import { checkTool, fileNames, rootVariable, type Tool } from "./tool.js";
 
-/** Folder of the configuration files of a project, an accepted place besides its root. */
-export const DOT_CONFIG = ".config";
+/** Subfolders holding the file of a tool, searched after the folder itself and in this order. */
+export const CONFIG_FOLDERS: readonly string[] = [".config", "config"];
 
 /** The values of one invocation of a tool. */
 export interface Invocation {
   /** Current folder, absolute. */
   readonly cwd: string;
+  /**
+   * Folder where the search of the root begins, relative to the current folder, such as the folder
+   * of a source file; the current folder by default. The start changes the search only: the root
+   * option, the configuration option and the variable keep resolving against the current folder.
+   * The current folder also stays the root when the search finds none.
+   */
+  readonly start?: string | null;
   /** Value of the root option, relative to the current folder. */
   readonly root?: string | null;
   /** Value of the configuration option, relative to the current folder. */
@@ -33,9 +39,11 @@ export interface Discovery {
  * Resolve the root of a command and locate the configuration of the tool.
  *
  * The root is the first answer of: the root option; the variable `<NAME>_ROOT` when set and not
- * empty; the nearest folder, from the current folder upward, holding a configuration in one of its
- * places, or the outermost such folder for a stacked tool; the current folder. The configuration is
- * the file named by the configuration option, else the single place of the root holding one.
+ * empty; the nearest folder, from the start upward, holding a configuration in one of its places,
+ * or the outermost such folder for a stacked tool; the current folder. The configuration is the
+ * file named by the configuration option, else the single place of the root holding one. The places
+ * of a folder are the file `<name>.<extension>`, the same file in `.config/`, and the same file in
+ * `config/`. Every file is read through `files`.
  */
 export async function discover(
   tool: Tool,
@@ -76,8 +84,10 @@ async function resolveRoot(
   if (option !== undefined && option !== null) return resolvePath(current, option);
   const variable = invocation.environ?.[rootVariable(tool)] ?? "";
   if (variable !== "") return resolvePath(current, variable);
+  const start = invocation.start;
+  const begin = start === undefined || start === null ? current : resolvePath(current, start);
   let outermost: string | null = null;
-  for (const folder of selfAndParents(current)) {
+  for (const folder of selfAndParents(begin)) {
     if ((await locations(tool, folder, files)).length > 0) {
       if (tool.stacked !== true) return folder;
       outermost = folder;
@@ -87,8 +97,7 @@ async function resolveRoot(
 }
 
 async function locations(tool: Tool, folder: string, files: FileSystem): Promise<string[]> {
-  const declared = await readDeclaredFolders(folder, files);
-  const bases = [folder, join(folder, DOT_CONFIG), ...declared.map((item) => join(folder, item))];
+  const bases = [folder, ...CONFIG_FOLDERS.map((subfolder) => join(folder, subfolder))];
   const found: string[] = [];
   for (const base of bases) {
     for (const name of fileNames(tool)) {

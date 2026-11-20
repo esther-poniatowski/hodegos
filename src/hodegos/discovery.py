@@ -10,7 +10,7 @@ Discovery
 
 Functions
 ---------
-discover(tool, *, root, config, cwd, environ)
+discover(tool, *, root, config, start, cwd, environ, files)
     Resolve the root of a command and locate the configuration of the tool.
 """
 
@@ -22,15 +22,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-from hodegos.declaration import read_declared_folders
 from hodegos.errors import DiscoveryError, ErrorCode
+from hodegos.file_system import FileSystem, LocalFileSystem
 from hodegos.tool import Tool
 
 PYPROJECT = "pyproject.toml"
 """Name of the file of a Python project, whose table `[tool.<name>]` may hold a configuration."""
 
-DOT_CONFIG = ".config"
-"""Folder of the configuration files of a project, an accepted place besides its root."""
+CONFIG_FOLDERS = (".config", "config")
+"""Subfolders holding the file of a tool, searched after the folder itself and in this order."""
 
 
 @dataclass(frozen=True)
@@ -69,13 +69,16 @@ class Discovery:
     configuration: Location | None
 
 
-def discover(
+# The keyword arguments mirror the options of a command, so their count follows the command.
+def discover(  # pylint: disable=too-many-arguments
     tool: Tool,
     *,
     root: Path | None = None,
     config: Path | None = None,
+    start: Path | None = None,
     cwd: Path | None = None,
     environ: Mapping[str, str] | None = None,
+    files: FileSystem | None = None,
 ) -> Discovery:
     """
     Resolve the root of a command and locate the configuration of the tool.
@@ -84,14 +87,14 @@ def discover(
 
     1. `root`, the value of the root option;
     2. the variable `<NAME>_ROOT`, when set and not empty;
-    3. the nearest folder, from the current folder upward, holding a configuration of the tool in
-       one of its places; the outermost such folder for a stacked tool;
+    3. the nearest folder, from `start` upward, holding a configuration of the tool in one of its
+       places; the outermost such folder for a stacked tool;
     4. the current folder.
 
     The configuration is the file named by `config`, else the single place of the root holding
     one. The places of a folder are the file `<name>.<extension>`, the same file in `.config/`, the
-    same file in each folder listed by the declaration `hodegos.yml` of the folder, and the table
-    `[tool.<name>]` of `pyproject.toml` for a tool that reads it.
+    same file in `config/`, and the table `[tool.<name>]` of `pyproject.toml` for a tool that reads
+    it.
 
     Parameters
     ----------
@@ -101,10 +104,18 @@ def discover(
         Value of the root option, relative to the current folder.
     config : Path, optional
         Value of the configuration option, relative to the current folder.
+    start : Path, optional
+        Folder where the search of the root begins, relative to the current folder, such as the
+        folder of a source file. Default: the current folder. The start changes the search only:
+        `root`, `config` and the variable keep resolving against the current folder. The current
+        folder also stays the root when the search finds none.
     cwd : Path, optional
         Current folder. Default: the working folder of the process.
     environ : Mapping[str, str], optional
         Environment variables. Default: `os.environ`.
+    files : FileSystem, optional
+        Port through which every file is read. Default: `LocalFileSystem()`, the local file
+        system.
 
     Returns
     -------
@@ -116,21 +127,24 @@ def discover(
     ------
     DiscoveryError
         With the code `missing-config` when `config` names no file, `competing-places` when two
-        places of the root hold a configuration, `competing-declarations` or
-        `invalid-declaration` for a declaration met by the search, and `invalid-pyproject` for a
-        `pyproject.toml` that does not parse.
+        places of the root hold a configuration, and `invalid-pyproject` for a `pyproject.toml`
+        that does not parse.
     """
     current = _normalize(cwd if cwd is not None else Path.cwd())
     variables = os.environ if environ is None else environ
-    resolved_root = _resolve_root(tool, root, current, variables)
+    reader = LocalFileSystem() if files is None else files
+    resolved_root = _given_root(tool, root, current, variables)
+    if resolved_root is None:
+        begin = current if start is None else _normalize(current / start)
+        resolved_root = _searched_root(tool, begin, reader) or current
     if config is not None:
         given = _normalize(current / config)
-        if not given.is_file():
+        if not reader.is_file(given):
             raise DiscoveryError(
                 ErrorCode.MISSING_CONFIG, f"no configuration file at {given}, named by option"
             )
         return Discovery(resolved_root, Location(given))
-    found = _locations(tool, resolved_root)
+    found = _locations(tool, resolved_root, reader)
     if len(found) > 1:
         raise DiscoveryError(
             ErrorCode.COMPETING_PLACES,
@@ -141,48 +155,50 @@ def discover(
     return Discovery(resolved_root, found[0] if found else None)
 
 
-def _resolve_root(
+def _given_root(
     tool: Tool, root: Path | None, current: Path, variables: Mapping[str, str]
-) -> Path:
-    """Return the root from the option, the variable, the search, or the current folder."""
+) -> Path | None:
+    """Return the root named by the option or by the variable, resolved against `current`."""
     if root is not None:
         return _normalize(current / root)
     variable = variables.get(tool.variable, "")
-    if variable:
-        return _normalize(current / variable)
+    return _normalize(current / variable) if variable else None
+
+
+def _searched_root(tool: Tool, begin: Path, files: FileSystem) -> Path | None:
+    """Return the folder holding a configuration found from `begin` upward, or None."""
     outermost: Path | None = None
-    for folder in (current, *current.parents):
-        if _locations(tool, folder):
+    for folder in (begin, *begin.parents):
+        if _locations(tool, folder, files):
             if not tool.stacked:
                 return folder
             outermost = folder
-    return outermost if outermost is not None else current
+    return outermost
 
 
-def _locations(tool: Tool, folder: Path) -> list[Location]:
+def _locations(tool: Tool, folder: Path, files: FileSystem) -> list[Location]:
     """Return every place of `folder` holding a configuration of the tool, in search order."""
-    bases = [folder, folder / DOT_CONFIG]
-    bases += [folder / declared for declared in read_declared_folders(folder)]
+    bases = [folder, *(folder / subfolder for subfolder in CONFIG_FOLDERS)]
     found = [
         Location(base / name)
         for base in bases
         for name in tool.file_names
-        if (base / name).is_file()
+        if files.is_file(base / name)
     ]
     if tool.pyproject:
-        table = _pyproject_table(tool, folder / PYPROJECT)
+        table = _pyproject_table(tool, folder / PYPROJECT, files)
         if table is not None:
             found.append(Location(folder / PYPROJECT, table))
     return found
 
 
-def _pyproject_table(tool: Tool, path: Path) -> Mapping[str, Any] | None:
+def _pyproject_table(tool: Tool, path: Path, files: FileSystem) -> Mapping[str, Any] | None:
     """Return the table `[tool.<name>]` of a `pyproject.toml`, or None when either is absent."""
-    if not path.is_file():
+    if not files.is_file(path):
         return None
     try:
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as error:
+        document = tomllib.loads(files.read_text(path))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
         raise DiscoveryError(ErrorCode.INVALID_PYPROJECT, f"{path}: {error}") from error
     section = document.get("tool")
     if not isinstance(section, dict):

@@ -2,8 +2,8 @@
 Initialization logic and public interface for the `hodegos` package.
 
 Hodegos resolves the root of a command and locates the configuration file of a tool, in the places
-that the convention of the tool admits and in the folders that the project declares in
-`hodegos.yml`. Each tool parses its own file.
+that the specification of Hodegos accepts for the convention of the tool. Each tool parses its own
+file.
 
 Variables
 ---------
@@ -25,10 +25,14 @@ DiscoveryError
     Failure of a discovery, with its kind.
 ErrorCode
     Kinds of failure of a discovery.
+FileSystem
+    Port to the files read by a discovery.
+LocalFileSystem
+    Adapter of the port to the local file system, the default of a discovery.
 
 Functions
 ---------
-discover(tool, *, root, config, cwd, environ) -> Discovery
+discover(tool, *, root, config, start, cwd, environ, files) -> Discovery
     Resolve the root of a command and locate the configuration of the tool.
 info() -> str
     Format diagnostic information about the package and platform.
@@ -54,6 +58,7 @@ import platform
 
 from hodegos.discovery import Discovery, Location, discover
 from hodegos.errors import DiscoveryError, ErrorCode
+from hodegos.file_system import FileSystem, LocalFileSystem
 from hodegos.tool import Tool
 
 try:
@@ -67,6 +72,8 @@ __all__ = [
     "Discovery",
     "DiscoveryError",
     "ErrorCode",
+    "FileSystem",
+    "LocalFileSystem",
     "Location",
     "Tool",
     "discover",
