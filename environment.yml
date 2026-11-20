@@ -8,7 +8,7 @@ dependencies:
   - black                  # code formatting
   - mypy                   # static type checking
   - mypy_extensions
-  - types-pyyaml           # type stubs of PyYAML, for mypy
+  - types-pyyaml           # type stubs of PyYAML, for the type checkers of the tests
   - pylint                 # code linting
   - pyright                # static type analysis
   # Testing
@@ -16,6 +16,5 @@ dependencies:
   - pytest-mock
   - pytest-cov
   - pytest-pylint          # Pylint plugin for Pytest
-  # Runtime
-  - pyyaml                 # the file hodegos.yml of a project
+  - pyyaml                 # the conformance cases, read by the tests
 variables:

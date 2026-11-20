@@ -1,9 +1,8 @@
 # ==================================================================================================
 # Pyproject Configuration for the hodegos Package
 #
-# Hodegos finds the root of a project and the configuration file of a tool, in the places that a
-# tool convention admits and in the folders that the project declares. Each tool parses its own
-# file.
+# Hodegos finds the root of a project and the configuration file of a tool, in the places that its
+# specification accepts for the convention of the tool. Each tool parses its own file.
 # ==================================================================================================
 
 # --- Build System Requirements --------------------------------------------------------------------
@@ -36,9 +35,7 @@ urls = {homepage = "https://github.com/esther-poniatowski/hodegos"}
 
 requires-python = ">=3.12"
 
-dependencies = [
-    "pyyaml",
-]
+dependencies = []
 
 
 # --- Package Source Code --------------------------------------------------------------------------
